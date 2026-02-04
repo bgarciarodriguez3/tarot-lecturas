@@ -60,7 +60,9 @@ export default function Angeles12Page() {
   return (
     <main style={{ maxWidth: 1100, margin: "0 auto", padding: 20 }}>
       <h1 style={{ fontSize: 34, fontWeight: 900 }}>Mensaje de los Ángeles</h1>
-      <p style={{ color: "#555" }}>Tirada de 12 cartas · Solo 1 carta invertida</p>
+      <p style={{ color: "#555", marginTop: 6 }}>
+        Tirada de 12 cartas · Solo 1 carta invertida
+      </p>
 
       <button onClick={generar} disabled={loading} style={btnStyle}>
         {loading ? "Generando..." : "Generar tirada"}
@@ -72,7 +74,7 @@ export default function Angeles12Page() {
         </div>
       )}
 
-      {/* 🂠 Boca abajo (solo al inicio) */}
+      {/* 🂠 Boca abajo antes de generar */}
       {!cards && (
         <div style={gridStyle}>
           {backs.map((_, i) => (
@@ -94,11 +96,10 @@ export default function Angeles12Page() {
                     src={encodeURI(c.image)}
                     alt={c.name}
                     onError={() => {
-                      // marcamos que esta imagen falló (en vez de mostrar el dorso)
+                      // Si falla la imagen, NO ponemos el dorso (para no confundir).
+                      // Mostramos una tarjeta informativa.
                       setCards((prev) =>
-                        prev
-                          ? prev.map((p, idx) => (idx === i ? { ...p, imgOk: false } : p))
-                          : prev
+                        prev ? prev.map((p, idx) => (idx === i ? { ...p, imgOk: false } : p)) : prev
                       );
                     }}
                     style={{
@@ -107,7 +108,7 @@ export default function Angeles12Page() {
                     }}
                   />
                 ) : (
-                  <div style={fallbackBox}>
+                  <div style={missingBox}>
                     <div style={{ fontWeight: 900, marginBottom: 6 }}>{c.name}</div>
                     <div style={{ fontSize: 12, color: "#666" }}>Imagen no disponible</div>
                     {c.reversed ? (
@@ -121,14 +122,29 @@ export default function Angeles12Page() {
             ))}
           </div>
 
-          <h2 style={{ marginTop: 24 }}>Interpretación</h2>
-          <div style={{ display: "grid", gap: 12 }}>
+          <h2 style={{ marginTop: 24, fontSize: 22, fontWeight: 900 }}>
+            Interpretación (texto completo)
+          </h2>
+
+          <div style={{ display: "grid", gap: 12, marginTop: 10 }}>
             {cards.map((c, i) => (
               <div key={i} style={textCard}>
-                <b>
+                <div style={{ fontWeight: 900 }}>
                   {i + 1}. {c.name} {c.reversed ? "(invertida)" : ""}
-                </b>
-                <p style={{ marginTop: 6 }}>{c.meaning || "—"}</p>
+                </div>
+
+                {/* 👇 aquí forzamos que NO se corte el texto */}
+                <div
+                  style={{
+                    marginTop: 8,
+                    color: "#222",
+                    whiteSpace: "pre-wrap",
+                    overflow: "visible",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {c.meaning || "—"}
+                </div>
               </div>
             ))}
           </div>
@@ -170,7 +186,7 @@ const cardImg: React.CSSProperties = {
   display: "block",
 };
 
-const fallbackBox: React.CSSProperties = {
+const missingBox: React.CSSProperties = {
   height: "100%",
   minHeight: 220,
   display: "flex",
@@ -184,7 +200,7 @@ const fallbackBox: React.CSSProperties = {
 const textCard: React.CSSProperties = {
   border: "1px solid #eee",
   borderRadius: 12,
-  padding: 12,
+  padding: 14,
   background: "white",
 };
 
