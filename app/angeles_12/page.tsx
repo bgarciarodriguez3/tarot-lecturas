@@ -34,12 +34,19 @@ export default function Angeles12Page() {
         return;
       }
 
-      // 🔒 Normalizamos imágenes (AQUÍ se arregla lo de Miguel)
-      const normalized = data.cards.map((c: any) => ({
-        ...c,
-        image: c.image || c.img || c.image_url || c.imageUrl || "",
-        reversed: c.reversed === true, // boolean REAL
-      }));
+      // 🔒 Normalización TOTAL (aquí se arregla Miguel)
+      const normalized: Card[] = data.cards.map((c: any) => {
+        const rawImg =
+          c.image || c.img || c.image_url || c.imageUrl || "";
+        const cleanImg =
+          typeof rawImg === "string" ? rawImg.trim() : "";
+
+        return {
+          ...c,
+          image: cleanImg,
+          reversed: c.reversed === true, // boolean REAL
+        };
+      });
 
       setCards(normalized);
     } catch {
@@ -52,7 +59,9 @@ export default function Angeles12Page() {
 
   return (
     <main style={{ maxWidth: 1100, margin: "0 auto", padding: 20 }}>
-      <h1 style={{ fontSize: 34, fontWeight: 900 }}>Mensaje de los Ángeles</h1>
+      <h1 style={{ fontSize: 34, fontWeight: 900 }}>
+        Mensaje de los Ángeles
+      </h1>
       <p style={{ color: "#555" }}>
         Tirada de 12 cartas · Solo 1 carta invertida
       </p>
@@ -72,7 +81,11 @@ export default function Angeles12Page() {
         <div style={gridStyle}>
           {backs.map((_, i) => (
             <div key={i} style={cardWrap}>
-              <img src="/card-back.jpg" style={cardImg} />
+              <img
+                src="/card-back.jpg"
+                alt="Carta boca abajo"
+                style={cardImg}
+              />
             </div>
           ))}
         </div>
@@ -85,15 +98,22 @@ export default function Angeles12Page() {
             {cards.map((c, i) => (
               <div key={i} style={cardWrap}>
                 <img
-                  src={c.image || "/card-back.jpg"}
+                  src={
+                    c.image
+                      ? encodeURI(c.image)
+                      : "/card-back.jpg"
+                  }
                   alt={c.name}
                   onError={(e) => {
-                    // 👈 AQUÍ se arregla Miguel si su imagen falla
-                    (e.currentTarget as HTMLImageElement).src = "/card-back.jpg";
+                    // fallback si Shopify o la URL falla
+                    (e.currentTarget as HTMLImageElement).src =
+                      "/card-back.jpg";
                   }}
                   style={{
                     ...cardImg,
-                    transform: c.reversed ? "rotate(180deg)" : "none",
+                    transform: c.reversed
+                      ? "rotate(180deg)"
+                      : "none",
                   }}
                 />
               </div>
@@ -105,9 +125,12 @@ export default function Angeles12Page() {
             {cards.map((c, i) => (
               <div key={i} style={textCard}>
                 <b>
-                  {i + 1}. {c.name} {c.reversed ? "(invertida)" : ""}
+                  {i + 1}. {c.name}{" "}
+                  {c.reversed ? "(invertida)" : ""}
                 </b>
-                <p style={{ marginTop: 6 }}>{c.meaning || "—"}</p>
+                <p style={{ marginTop: 6 }}>
+                  {c.meaning || "—"}
+                </p>
               </div>
             ))}
           </div>
