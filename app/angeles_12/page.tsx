@@ -89,37 +89,52 @@ export default function Angeles12Page() {
       {cards && (
         <>
           <div style={gridStyle}>
-            {cards.map((c, i) => (
-              <div key={i} style={cardWrap}>
-                {c.image && c.imgOk ? (
+            {cards.map((c, i) => {
+              // Si falla, pondremos el dorso PERO mantenemos el giro en el contenedor.
+              const src = c.image && c.imgOk ? safeEncodeUrl(c.image) : "/card-back.jpg";
+
+              return (
+                <div
+                  key={i}
+                  style={{
+                    ...cardWrap,
+                    // ✅ EL GIRO AQUÍ (no en el img)
+                    transform: c.reversed ? "rotate(180deg)" : "rotate(0deg)",
+                    transition: "transform 200ms ease",
+                  }}
+                >
                   <img
-                    src={encodeURI(c.image)}
+                    src={src}
                     alt={c.name}
-                    onError={() => {
-                      // Si falla la imagen, NO ponemos el dorso (para no confundir).
-                      // Mostramos una tarjeta informativa.
+                    loading="lazy"
+                    style={cardImg}
+                    onError={(e) => {
+                      // Si la imagen remota falla, cambiamos a dorso.
+                      // Evitamos bucle si el dorso también fallara.
+                      const el = e.currentTarget;
+                      if (el.src.includes("/card-back.jpg")) return;
+
+                      el.src = "/card-back.jpg";
                       setCards((prev) =>
-                        prev ? prev.map((p, idx) => (idx === i ? { ...p, imgOk: false } : p)) : prev
+                        prev
+                          ? prev.map((p, idx) =>
+                              idx === i ? { ...p, imgOk: false } : p
+                            )
+                          : prev
                       );
                     }}
-                    style={{
-                      ...cardImg,
-                      transform: c.reversed ? "rotate(180deg)" : "none",
-                    }}
                   />
-                ) : (
-                  <div style={missingBox}>
-                    <div style={{ fontWeight: 900, marginBottom: 6 }}>{c.name}</div>
-                    <div style={{ fontSize: 12, color: "#666" }}>Imagen no disponible</div>
-                    {c.reversed ? (
-                      <div style={{ marginTop: 8, fontSize: 12, fontWeight: 800 }}>
-                        (invertida)
-                      </div>
-                    ) : null}
-                  </div>
-                )}
-              </div>
-            ))}
+
+                  {/* Overlay si la imagen original falló */}
+                  {!c.imgOk && (
+                    <div style={overlay}>
+                      <div style={{ fontWeight: 900 }}>{c.name}</div>
+                      <div style={{ fontSize: 12, opacity: 0.9 }}>Imagen no disponible</div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           <h2 style={{ marginTop: 24, fontSize: 22, fontWeight: 900 }}>
@@ -133,7 +148,6 @@ export default function Angeles12Page() {
                   {i + 1}. {c.name} {c.reversed ? "(invertida)" : ""}
                 </div>
 
-                {/* 👇 aquí forzamos que NO se corte el texto */}
                 <div
                   style={{
                     marginTop: 8,
@@ -152,6 +166,19 @@ export default function Angeles12Page() {
       )}
     </main>
   );
+}
+
+/** Evita romper URLs con caracteres raros.
+ *  (encodeURI está bien, pero esto es más seguro para querystrings ya formadas)
+ */
+function safeEncodeUrl(url: string) {
+  try {
+    // Si ya es una URL válida, la devolvemos tal cual.
+    // Si no, intentamos sanear espacios.
+    return url.replace(/\s/g, "%20");
+  } catch {
+    return url;
+  }
 }
 
 /* estilos */
@@ -173,28 +200,30 @@ const gridStyle: React.CSSProperties = {
 };
 
 const cardWrap: React.CSSProperties = {
+  position: "relative",
   borderRadius: 14,
   overflow: "hidden",
   border: "1px solid #eee",
   background: "#fff",
-  minHeight: 220,
+  height: 260, // ✅ altura fija para que todas sean iguales
 };
 
 const cardImg: React.CSSProperties = {
   width: "100%",
-  height: "auto",
+  height: "100%",
+  objectFit: "cover", // ✅ evita “auto” y cosas raras al rotar
   display: "block",
 };
 
-const missingBox: React.CSSProperties = {
-  height: "100%",
-  minHeight: 220,
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: 12,
-  textAlign: "center",
+const overlay: React.CSSProperties = {
+  position: "absolute",
+  left: 8,
+  right: 8,
+  bottom: 8,
+  padding: "8px 10px",
+  borderRadius: 12,
+  background: "rgba(0,0,0,0.55)",
+  color: "white",
 };
 
 const textCard: React.CSSProperties = {
