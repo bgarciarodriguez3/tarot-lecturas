@@ -38,7 +38,8 @@ export default function Angeles12Page() {
 
       const normalized: UiCard[] = data.cards.map((c: any) => {
         const rawImg = c.image || c.img || c.image_url || c.imageUrl || "";
-        const cleanImg = typeof rawImg === "string" ? rawImg.trim() : "";
+        const cleanImg =
+          typeof rawImg === "string" ? rawImg.trim() : "";
 
         return {
           ...c,
@@ -59,7 +60,9 @@ export default function Angeles12Page() {
 
   return (
     <main style={{ maxWidth: 1100, margin: "0 auto", padding: 20 }}>
-      <h1 style={{ fontSize: 34, fontWeight: 900 }}>Mensaje de los Ángeles</h1>
+      <h1 style={{ fontSize: 34, fontWeight: 900 }}>
+        Mensaje de los Ángeles
+      </h1>
       <p style={{ color: "#555", marginTop: 6 }}>
         Tirada de 12 cartas · Solo 1 carta invertida
       </p>
@@ -74,32 +77,39 @@ export default function Angeles12Page() {
         </div>
       )}
 
-      {/* 🂠 Boca abajo antes de generar */}
+      {/* 🂠 Antes de generar */}
       {!cards && (
         <div style={gridStyle}>
           {backs.map((_, i) => (
-            <div key={i} style={cardWrap}>
-              <img src="/card-back.jpg" alt="Carta boca abajo" style={cardImg} />
+            <div key={`back-${i}`} style={cardWrap}>
+              <img
+                src="/card-back.jpg"
+                alt="Carta boca abajo"
+                style={cardImg}
+              />
             </div>
           ))}
         </div>
       )}
 
-      {/* 🃏 Reveladas */}
+      {/* 🃏 Cartas reveladas */}
       {cards && (
         <>
           <div style={gridStyle}>
             {cards.map((c, i) => {
-              // Si falla, pondremos el dorso PERO mantenemos el giro en el contenedor.
-              const src = c.image && c.imgOk ? safeEncodeUrl(c.image) : "/card-back.jpg";
+              const src =
+                c.image && c.imgOk
+                  ? safeEncodeUrl(c.image)
+                  : "/card-back.jpg";
 
               return (
                 <div
-                  key={i}
+                  key={c.id ?? `${c.name}-${i}`} // ✅ CLAVE CORRECTA
                   style={{
                     ...cardWrap,
-                    // ✅ EL GIRO AQUÍ (no en el img)
-                    transform: c.reversed ? "rotate(180deg)" : "rotate(0deg)",
+                    transform: c.reversed
+                      ? "rotate(180deg)"
+                      : "rotate(0deg)",
                     transition: "transform 200ms ease",
                   }}
                 >
@@ -109,8 +119,6 @@ export default function Angeles12Page() {
                     loading="lazy"
                     style={cardImg}
                     onError={(e) => {
-                      // Si la imagen remota falla, cambiamos a dorso.
-                      // Evitamos bucle si el dorso también fallara.
                       const el = e.currentTarget;
                       if (el.src.includes("/card-back.jpg")) return;
 
@@ -118,18 +126,21 @@ export default function Angeles12Page() {
                       setCards((prev) =>
                         prev
                           ? prev.map((p, idx) =>
-                              idx === i ? { ...p, imgOk: false } : p
+                              idx === i
+                                ? { ...p, imgOk: false }
+                                : p
                             )
                           : prev
                       );
                     }}
                   />
 
-                  {/* Overlay si la imagen original falló */}
                   {!c.imgOk && (
                     <div style={overlay}>
                       <div style={{ fontWeight: 900 }}>{c.name}</div>
-                      <div style={{ fontSize: 12, opacity: 0.9 }}>Imagen no disponible</div>
+                      <div style={{ fontSize: 12 }}>
+                        Imagen no disponible
+                      </div>
                     </div>
                   )}
                 </div>
@@ -138,14 +149,18 @@ export default function Angeles12Page() {
           </div>
 
           <h2 style={{ marginTop: 24, fontSize: 22, fontWeight: 900 }}>
-            Interpretación (texto completo)
+            Interpretación
           </h2>
 
           <div style={{ display: "grid", gap: 12, marginTop: 10 }}>
             {cards.map((c, i) => (
-              <div key={i} style={textCard}>
+              <div
+                key={`text-${c.id ?? i}`}
+                style={textCard}
+              >
                 <div style={{ fontWeight: 900 }}>
-                  {i + 1}. {c.name} {c.reversed ? "(invertida)" : ""}
+                  {i + 1}. {c.name}{" "}
+                  {c.reversed ? "(invertida)" : ""}
                 </div>
 
                 <div
@@ -153,7 +168,6 @@ export default function Angeles12Page() {
                     marginTop: 8,
                     color: "#222",
                     whiteSpace: "pre-wrap",
-                    overflow: "visible",
                     lineHeight: 1.5,
                   }}
                 >
@@ -168,20 +182,18 @@ export default function Angeles12Page() {
   );
 }
 
-/** Evita romper URLs con caracteres raros.
- *  (encodeURI está bien, pero esto es más seguro para querystrings ya formadas)
- */
+/* ================== helpers ================== */
+
 function safeEncodeUrl(url: string) {
   try {
-    // Si ya es una URL válida, la devolvemos tal cual.
-    // Si no, intentamos sanear espacios.
     return url.replace(/\s/g, "%20");
   } catch {
     return url;
   }
 }
 
-/* estilos */
+/* ================== estilos ================== */
+
 const btnStyle: React.CSSProperties = {
   margin: "14px 0",
   padding: "10px 16px",
@@ -205,13 +217,13 @@ const cardWrap: React.CSSProperties = {
   overflow: "hidden",
   border: "1px solid #eee",
   background: "#fff",
-  height: 260, // ✅ altura fija para que todas sean iguales
+  height: 260,
 };
 
 const cardImg: React.CSSProperties = {
   width: "100%",
   height: "100%",
-  objectFit: "cover", // ✅ evita “auto” y cosas raras al rotar
+  objectFit: "cover",
   display: "block",
 };
 
