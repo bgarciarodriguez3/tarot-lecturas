@@ -18,27 +18,32 @@ export default function Angeles12Interactive() {
   const [spread, setSpread] = useState<SpreadItem[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  const totalCards = 12; // baraja “ritual” visible
+  const totalCards = 12; // baraja visible
   const [picked, setPicked] = useState<number[]>([]); // índices 0..11
   const [showReading, setShowReading] = useState(false);
 
-  // Llamamos a la API UNA vez (devuelve las 4 cartas finales)
+  // ✅ Llamamos a TU PROXY (evita CORS)
   useEffect(() => {
     async function run() {
       try {
         setLoading(true);
-        const res = await fetch(
-          "https://tarot-api-vercel.vercel.app/api/products/angeles_12/spread",
-          { cache: "no-store" }
-        );
+        setError(null);
+
+        const res = await fetch("/api/spread", { cache: "no-store" });
         const data = await res.json();
-        setSpread(data.result ?? []);
+
+        if (!data?.ok || !Array.isArray(data?.result)) {
+          throw new Error("bad_response");
+        }
+
+        setSpread(data.result);
       } catch (e) {
         setError("No se pudo cargar la tirada.");
       } finally {
         setLoading(false);
       }
     }
+
     run();
   }, []);
 
@@ -184,7 +189,13 @@ export default function Angeles12Interactive() {
                     />
                   )}
 
-                  <div style={{ marginTop: 10, fontSize: 14, whiteSpace: "pre-wrap" }}>
+                  <div
+                    style={{
+                      marginTop: 10,
+                      fontSize: 14,
+                      whiteSpace: "pre-wrap",
+                    }}
+                  >
                     {card.meaning}
                   </div>
                 </div>
