@@ -1,227 +1,176 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
-type SpreadItem = {
+type CardResult = {
   position: string;
-  positionIndex: number;
   card: {
-    id: string;
-    name?: string;
-    meaning?: string;
-    image?: string;
+    name: string;
+    meaning: string;
+    image: string;
   };
 };
 
-export default function Angeles12Interactive() {
-  const [loading, setLoading] = useState(true);
-  const [spread, setSpread] = useState<SpreadItem[]>([]);
+export default function Angeles12Page() {
+  const TOTAL_CARDS = 12;
+  const MAX_SELECTION = 4;
+
+  const [selected, setSelected] = useState<number[]>([]);
+  const [result, setResult] = useState<CardResult[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  const totalCards = 12; // baraja visible
-  const [picked, setPicked] = useState<number[]>([]); // índices 0..11
-  const [showReading, setShowReading] = useState(false);
-
-  // ✅ Llamamos a TU PROXY (evita CORS)
-  useEffect(() => {
-    async function run() {
-      try {
-        setLoading(true);
-        setError(null);
-
-        const res = await fetch("/api/spread", { cache: "no-store" });
-        const data = await res.json();
-
-        if (!data?.ok || !Array.isArray(data?.result)) {
-          throw new Error("bad_response");
-        }
-
-        setSpread(data.result);
-      } catch (e) {
-        setError("No se pudo cargar la tirada.");
-      } finally {
-        setLoading(false);
-      }
+  const toggleCard = (index: number) => {
+    if (selected.includes(index)) {
+      setSelected(selected.filter((i) => i !== index));
+      return;
     }
-
-    run();
-  }, []);
-
-  const headline = useMemo(() => {
-    if (showReading) return "Tu mensaje está listo ✨";
-    if (picked.length === 0) return "Respira hondo y conecta con tu pregunta…";
-    if (picked.length < 4) return `Elige ${4 - picked.length} carta(s) más`;
-    return "Perfecto. Cuando quieras, revela tu lectura.";
-  }, [picked.length, showReading]);
-
-  const onPick = (idx: number) => {
-    if (showReading) return;
-    if (picked.includes(idx)) return;
-    if (picked.length >= 4) return;
-    setPicked((prev) => [...prev, idx]);
+    if (selected.length < MAX_SELECTION) {
+      setSelected([...selected, index]);
+    }
   };
 
-  const canReveal = picked.length === 4 && !loading;
+  useEffect(() => {
+    if (selected.length === MAX_SELECTION) {
+      fetchReading();
+    }
+  }, [selected]);
+
+  const fetchReading = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const res = await fetch("/api/spread", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          product_id: "angeles_12",
+          spread: "angeles_4",
+        }),
+      });
+
+      if (!res.ok) throw new Error("No se pudo cargar la tirada.");
+
+      const data = await res.json();
+      setResult(data.result);
+    } catch (e: any) {
+      setError("No se pudo cargar la tirada.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const sendByEmail = () => {
+    if (!result) return;
+
+    const subject = encodeURIComponent("🌟 Tu mensaje de los Ángeles");
+    const body = encodeURIComponent(
+      "✨ Tu lectura de los Ángeles ✨\n\n" +
+        result
+          .map(
+            (r, i) =>
+              `${i + 1}. ${r.position}\n${r.card.meaning}\n`
+          )
+          .join("\n\n")
+    );
+
+    window.location.href = `mailto:?subject=${subject}&body=${body}`;
+  };
 
   return (
-    <main style={{ padding: 24, fontFamily: "system-ui" }}>
-      <h1 style={{ marginBottom: 8 }}>Mensaje de los Ángeles</h1>
-      <p style={{ marginTop: 0, opacity: 0.8 }}>{headline}</p>
+    <div style={{ padding: "24px" }}>
+      <h1>Mensaje de los Ángeles</h1>
+      <p>Tirada automática de 4 cartas</p>
 
-      {error && <p style={{ color: "crimson" }}>{error}</p>}
+      {!result && (
+        <>
+          <p>Elige {MAX_SELECTION - selected.length} carta(s) más</p>
 
-      {!showReading && (
+          {error && <p style={{ color: "red" }}>{error}</p>}
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
+              gap: "16px",
+              marginTop: "20px",
+            }}
+          >
+            {Array.from({ length: TOTAL_CARDS }).map((_, i) => (
+              <div
+                key={i}
+                onClick={() => toggleCard(i)}
+                style={{
+                  cursor: "pointer",
+                  borderRadius: "12px",
+                  overflow: "hidden",
+                  border: selected.includes(i)
+                    ? "3px solid #f5c77a"
+                    : "2px solid transparent",
+                  opacity: selected.includes(i) ? 0.7 : 1,
+                }}
+              >
+                <img
+                  src="/card-back.jpg"
+                  alt="Carta boca abajo"
+                  style={{ width: "100%", display: "block" }}
+                />
+              </div>
+            ))}
+          </div>
+
+          {loading && <p>Cargando lectura...</p>}
+        </>
+      )}
+
+      {result && (
         <>
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(6, minmax(120px, 1fr))",
-              gap: 14,
-              marginTop: 18,
+              gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+              gap: "20px",
+              marginTop: "30px",
             }}
           >
-            {Array.from({ length: totalCards }).map((_, idx) => {
-              const isPicked = picked.includes(idx);
-
-              return (
-                <button
-                  key={idx}
-                  onClick={() => onPick(idx)}
-                  disabled={isPicked || picked.length >= 4}
+            {result.map((r, i) => (
+              <div key={i}>
+                <h3>
+                  {r.position} ({i + 1})
+                </h3>
+                <img
+                  src={r.card.image}
+                  alt={r.card.name}
                   style={{
-                    border: 0,
-                    padding: 0,
-                    background: "transparent",
-                    cursor: isPicked ? "default" : "pointer",
-                    opacity: isPicked ? 0.65 : 1,
-                    transform: isPicked ? "scale(0.98)" : "none",
+                    width: "100%",
+                    borderRadius: "12px",
+                    marginBottom: "10px",
                   }}
-                  aria-label={`Carta ${idx + 1}`}
-                >
-                  <img
-                    src="/card-back.jpg"
-                    alt="Carta boca abajo"
-                    style={{
-                      width: "100%",
-                      borderRadius: 14,
-                      display: "block",
-                      boxShadow: "0 6px 18px rgba(0,0,0,0.12)",
-                    }}
-                  />
-                </button>
-              );
-            })}
+                />
+                <p>{r.card.meaning}</p>
+              </div>
+            ))}
           </div>
 
-          <div style={{ marginTop: 18, display: "flex", gap: 12 }}>
-            <button
-              onClick={() => setPicked([])}
-              style={{
-                padding: "10px 14px",
-                borderRadius: 10,
-                border: "1px solid #ddd",
-                background: "white",
-                cursor: "pointer",
-              }}
-            >
-              Reiniciar
-            </button>
-
-            <button
-              onClick={() => setShowReading(true)}
-              disabled={!canReveal}
-              style={{
-                padding: "10px 14px",
-                borderRadius: 10,
-                border: "1px solid #111",
-                background: canReveal ? "#111" : "#999",
-                color: "white",
-                cursor: canReveal ? "pointer" : "not-allowed",
-              }}
-            >
-              Ver mi lectura
-            </button>
-          </div>
-
-          {loading && <p style={{ marginTop: 12 }}>Cargando tu tirada…</p>}
+          {/* BOTÓN EMAIL */}
+          <button
+            onClick={sendByEmail}
+            style={{
+              marginTop: "30px",
+              padding: "14px 22px",
+              borderRadius: "12px",
+              border: "none",
+              background: "#1e3a5f",
+              color: "white",
+              fontSize: "16px",
+              cursor: "pointer",
+            }}
+          >
+            📧 Enviar lectura por email
+          </button>
         </>
       )}
-
-      {showReading && (
-        <section style={{ marginTop: 22 }}>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(4, minmax(220px, 1fr))",
-              gap: 20,
-              marginTop: 10,
-            }}
-          >
-            {spread.map((item) => {
-              const card = item.card ?? ({} as any);
-              return (
-                <div
-                  key={item.positionIndex}
-                  style={{
-                    border: "1px solid #eee",
-                    borderRadius: 12,
-                    padding: 12,
-                    background: "#fff",
-                  }}
-                >
-                  <div style={{ fontSize: 12, opacity: 0.7 }}>
-                    {item.position} (#{item.positionIndex})
-                  </div>
-
-                  <div style={{ fontWeight: 800, marginTop: 6 }}>
-                    {card.name || card.id}
-                  </div>
-
-                  {card.image && (
-                    <img
-                      src={card.image}
-                      alt={card.name || card.id}
-                      style={{
-                        width: "100%",
-                        borderRadius: 10,
-                        marginTop: 10,
-                      }}
-                    />
-                  )}
-
-                  <div
-                    style={{
-                      marginTop: 10,
-                      fontSize: 14,
-                      whiteSpace: "pre-wrap",
-                    }}
-                  >
-                    {card.meaning}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          <div style={{ marginTop: 18 }}>
-            <button
-              onClick={() => {
-                setShowReading(false);
-                setPicked([]);
-              }}
-              style={{
-                padding: "10px 14px",
-                borderRadius: 10,
-                border: "1px solid #ddd",
-                background: "white",
-                cursor: "pointer",
-              }}
-            >
-              Hacer otra tirada
-            </button>
-          </div>
-        </section>
-      )}
-    </main>
+    </div>
   );
 }
