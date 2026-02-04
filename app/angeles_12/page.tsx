@@ -1,176 +1,253 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-type CardResult = {
+type SpreadItem = {
   position: string;
+  positionIndex: number;
   card: {
-    name: string;
-    meaning: string;
-    image: string;
+    id: string;
+    name?: string;
+    meaning?: string;
+    image?: string;
   };
 };
 
-export default function Angeles12Page() {
-  const TOTAL_CARDS = 12;
-  const MAX_SELECTION = 4;
-
-  const [selected, setSelected] = useState<number[]>([]);
-  const [result, setResult] = useState<CardResult[] | null>(null);
+export default function Angeles12Interactive() {
+  const [loading, setLoading] = useState(true);
+  const [spread, setSpread] = useState<SpreadItem[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
 
-  const toggleCard = (index: number) => {
-    if (selected.includes(index)) {
-      setSelected(selected.filter((i) => i !== index));
-      return;
-    }
-    if (selected.length < MAX_SELECTION) {
-      setSelected([...selected, index]);
-    }
-  };
+  const totalCards = 12; // baraja visible
+  const maxPicks = 4;
+
+  const [picked, setPicked] = useState<number[]>([]);
+  const [showReading, setShowReading] = useState(false);
+
+  // Email del cliente (lo puede escribir o venir por URL ?email=...)
+  const [email, setEmail] = useState("");
 
   useEffect(() => {
-    if (selected.length === MAX_SELECTION) {
-      fetchReading();
+    const params = new URLSearchParams(window.location.search);
+    const e = params.get("email");
+    if (e) setEmail(e);
+  }, []);
+
+  // ✅ Cargamos la tirada una vez (GET a tu proxy)
+  useEffect(() => {
+    async function run() {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const res = await fetch("/api/spread", { cache: "no-store" });
+        const data = await res.json();
+
+        if (!data?.ok || !Array.isArray(data?.result)) {
+          throw new Error("bad_response");
+        }
+
+        setSpread(data.result);
+      } catch (e) {
+        setError("No se pudo cargar la tirada.");
+      } finally {
+        setLoading(false);
+      }
     }
-  }, [selected]);
 
-  const fetchReading = async () => {
-    try {
-      setLoading(true);
-      setError(null);
+    run();
+  }, []);
 
-      const res = await fetch("/api/spread", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          product_id: "angeles_12",
-          spread: "angeles_4",
-        }),
-      });
+  const headline = useMemo(() => {
+    if (showReading) return "Tu mensaje está listo ✨";
+    if (picked.length === 0) return "Respira hondo y conecta con tu pregunta…";
+    if (picked.length < maxPicks) return `Elige ${maxPicks - picked.length} carta(s) más`;
+    return "Perfecto. Cuando quieras, revela tu lectura.";
+  }, [picked.length, showReading]);
 
-      if (!res.ok) throw new Error("No se pudo cargar la tirada.");
-
-      const data = await res.json();
-      setResult(data.result);
-    } catch (e: any) {
-      setError("No se pudo cargar la tirada.");
-    } finally {
-      setLoading(false);
-    }
+  const onPick = (idx: number) => {
+    if (showReading) return;
+    if (picked.includes(idx)) return;
+    if (picked.length >= maxPicks) return;
+    setPicked((prev) => [...prev, idx]);
   };
 
+  const canReveal = picked.length === maxPicks && !loading && !error;
+
   const sendByEmail = () => {
-    if (!result) return;
+    if (!spread?.length) return;
 
     const subject = encodeURIComponent("🌟 Tu mensaje de los Ángeles");
     const body = encodeURIComponent(
-      "✨ Tu lectura de los Ángeles ✨\n\n" +
-        result
+      `✨ Tu lectura de los Ángeles ✨\n\n` +
+        spread
           .map(
             (r, i) =>
-              `${i + 1}. ${r.position}\n${r.card.meaning}\n`
+              `${i + 1}. ${r.position}\n${r.card?.name || r.card?.id || ""}\n\n${r.card?.meaning || ""}`
           )
-          .join("\n\n")
+          .join("\n\n----------------------\n\n")
     );
 
-    window.location.href = `mailto:?subject=${subject}&body=${body}`;
+    // Si el cliente ha puesto su email, lo usamos; si no, mailto vacío (le pedirá elegir destinatario)
+    const to = encodeURIComponent(email || "");
+    window.location.href = `mailto:${to}?subject=${subject}&body=${body}`;
   };
 
   return (
-    <div style={{ padding: "24px" }}>
-      <h1>Mensaje de los Ángeles</h1>
-      <p>Tirada automática de 4 cartas</p>
+    <main style={{ padding: 24, fontFamily: "system-ui" }}>
+      <h1 style={{ marginBottom: 8 }}>Mensaje de los Ángeles</h1>
+      <p style={{ marginTop: 0, opacity: 0.8 }}>{headline}</p>
 
-      {!result && (
-        <>
-          <p>Elige {MAX_SELECTION - selected.length} carta(s) más</p>
+      {error && <p style={{ color: "crimson" }}>{error}</p>}
 
-          {error && <p style={{ color: "red" }}>{error}</p>}
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
-              gap: "16px",
-              marginTop: "20px",
-            }}
-          >
-            {Array.from({ length: TOTAL_CARDS }).map((_, i) => (
-              <div
-                key={i}
-                onClick={() => toggleCard(i)}
-                style={{
-                  cursor: "pointer",
-                  borderRadius: "12px",
-                  overflow: "hidden",
-                  border: selected.includes(i)
-                    ? "3px solid #f5c77a"
-                    : "2px solid transparent",
-                  opacity: selected.includes(i) ? 0.7 : 1,
-                }}
-              >
-                <img
-                  src="/card-back.jpg"
-                  alt="Carta boca abajo"
-                  style={{ width: "100%", display: "block" }}
-                />
-              </div>
-            ))}
-          </div>
-
-          {loading && <p>Cargando lectura...</p>}
-        </>
-      )}
-
-      {result && (
+      {!showReading && (
         <>
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
-              gap: "20px",
-              marginTop: "30px",
+              gridTemplateColumns: "repeat(6, minmax(120px, 1fr))",
+              gap: 14,
+              marginTop: 18,
             }}
           >
-            {result.map((r, i) => (
-              <div key={i}>
-                <h3>
-                  {r.position} ({i + 1})
-                </h3>
-                <img
-                  src={r.card.image}
-                  alt={r.card.name}
+            {Array.from({ length: totalCards }).map((_, idx) => {
+              const isPicked = picked.includes(idx);
+
+              return (
+                <button
+                  key={idx}
+                  onClick={() => onPick(idx)}
+                  disabled={isPicked || picked.length >= maxPicks}
                   style={{
-                    width: "100%",
-                    borderRadius: "12px",
-                    marginBottom: "10px",
+                    border: 0,
+                    padding: 0,
+                    background: "transparent",
+                    cursor: isPicked ? "default" : "pointer",
+                    opacity: isPicked ? 0.65 : 1,
+                    transform: isPicked ? "scale(0.98)" : "none",
                   }}
-                />
-                <p>{r.card.meaning}</p>
-              </div>
-            ))}
+                  aria-label={`Carta ${idx + 1}`}
+                >
+                  <img
+                    src="/card-back.jpg"
+                    alt="Carta boca abajo"
+                    style={{
+                      width: "100%",
+                      borderRadius: 14,
+                      display: "block",
+                      boxShadow: "0 6px 18px rgba(0,0,0,0.12)",
+                    }}
+                  />
+                </button>
+              );
+            })}
           </div>
 
-          {/* BOTÓN EMAIL */}
-          <button
-            onClick={sendByEmail}
-            style={{
-              marginTop: "30px",
-              padding: "14px 22px",
-              borderRadius: "12px",
-              border: "none",
-              background: "#1e3a5f",
-              color: "white",
-              fontSize: "16px",
-              cursor: "pointer",
-            }}
-          >
-            📧 Enviar lectura por email
-          </button>
+          <div style={{ marginTop: 18 }}>
+            <button
+              onClick={() => setShowReading(true)}
+              disabled={!canReveal}
+              style={{
+                padding: "10px 14px",
+                borderRadius: 10,
+                border: "1px solid #111",
+                background: canReveal ? "#111" : "#999",
+                color: "white",
+                cursor: canReveal ? "pointer" : "not-allowed",
+              }}
+            >
+              Ver mi lectura
+            </button>
+            {loading && <span style={{ marginLeft: 12 }}>Cargando tu tirada…</span>}
+          </div>
         </>
       )}
-    </div>
+
+      {showReading && (
+        <section style={{ marginTop: 22 }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(4, minmax(220px, 1fr))",
+              gap: 20,
+              marginTop: 10,
+            }}
+          >
+            {spread.map((item) => {
+              const card = item.card ?? ({} as any);
+              return (
+                <div
+                  key={item.positionIndex}
+                  style={{
+                    border: "1px solid #eee",
+                    borderRadius: 12,
+                    padding: 12,
+                    background: "#fff",
+                  }}
+                >
+                  <div style={{ fontSize: 12, opacity: 0.7 }}>
+                    {item.position} (#{item.positionIndex})
+                  </div>
+
+                  <div style={{ fontWeight: 800, marginTop: 6 }}>
+                    {card.name || card.id}
+                  </div>
+
+                  {card.image && (
+                    <img
+                      src={card.image}
+                      alt={card.name || card.id}
+                      style={{
+                        width: "100%",
+                        borderRadius: 10,
+                        marginTop: 10,
+                      }}
+                    />
+                  )}
+
+                  <div
+                    style={{
+                      marginTop: 10,
+                      fontSize: 14,
+                      whiteSpace: "pre-wrap",
+                    }}
+                  >
+                    {card.meaning}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Email */}
+          <div style={{ marginTop: 18, display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <input
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Email del cliente (opcional)"
+              style={{
+                padding: "10px 12px",
+                borderRadius: 10,
+                border: "1px solid #ddd",
+                minWidth: 260,
+              }}
+            />
+            <button
+              onClick={sendByEmail}
+              style={{
+                padding: "10px 14px",
+                borderRadius: 10,
+                border: "1px solid #111",
+                background: "#111",
+                color: "white",
+                cursor: "pointer",
+              }}
+            >
+              📧 Enviar lectura por email
+            </button>
+          </div>
+        </section>
+      )}
+    </main>
   );
 }
