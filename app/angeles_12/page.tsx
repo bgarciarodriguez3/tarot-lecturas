@@ -10,13 +10,15 @@ type Card = {
   reversed?: boolean;
 };
 
+type UiCard = Card & { imgOk: boolean };
+
 type ApiResp =
   | { ok: true; cards: Card[] }
   | { ok: false; error: string; details?: string };
 
 export default function Angeles12Page() {
   const backs = useMemo(() => Array.from({ length: 12 }), []);
-  const [cards, setCards] = useState<Card[] | null>(null);
+  const [cards, setCards] = useState<UiCard[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,17 +36,15 @@ export default function Angeles12Page() {
         return;
       }
 
-      // 🔒 Normalización TOTAL (aquí se arregla Miguel)
-      const normalized: Card[] = data.cards.map((c: any) => {
-        const rawImg =
-          c.image || c.img || c.image_url || c.imageUrl || "";
-        const cleanImg =
-          typeof rawImg === "string" ? rawImg.trim() : "";
+      const normalized: UiCard[] = data.cards.map((c: any) => {
+        const rawImg = c.image || c.img || c.image_url || c.imageUrl || "";
+        const cleanImg = typeof rawImg === "string" ? rawImg.trim() : "";
 
         return {
           ...c,
           image: cleanImg,
-          reversed: c.reversed === true, // boolean REAL
+          reversed: c.reversed === true,
+          imgOk: true,
         };
       });
 
@@ -59,12 +59,8 @@ export default function Angeles12Page() {
 
   return (
     <main style={{ maxWidth: 1100, margin: "0 auto", padding: 20 }}>
-      <h1 style={{ fontSize: 34, fontWeight: 900 }}>
-        Mensaje de los Ángeles
-      </h1>
-      <p style={{ color: "#555" }}>
-        Tirada de 12 cartas · Solo 1 carta invertida
-      </p>
+      <h1 style={{ fontSize: 34, fontWeight: 900 }}>Mensaje de los Ángeles</h1>
+      <p style={{ color: "#555" }}>Tirada de 12 cartas · Solo 1 carta invertida</p>
 
       <button onClick={generar} disabled={loading} style={btnStyle}>
         {loading ? "Generando..." : "Generar tirada"}
@@ -76,46 +72,51 @@ export default function Angeles12Page() {
         </div>
       )}
 
-      {/* 🂠 Cartas boca abajo */}
+      {/* 🂠 Boca abajo (solo al inicio) */}
       {!cards && (
         <div style={gridStyle}>
           {backs.map((_, i) => (
             <div key={i} style={cardWrap}>
-              <img
-                src="/card-back.jpg"
-                alt="Carta boca abajo"
-                style={cardImg}
-              />
+              <img src="/card-back.jpg" alt="Carta boca abajo" style={cardImg} />
             </div>
           ))}
         </div>
       )}
 
-      {/* 🃏 Cartas reveladas */}
+      {/* 🃏 Reveladas */}
       {cards && (
         <>
           <div style={gridStyle}>
             {cards.map((c, i) => (
               <div key={i} style={cardWrap}>
-                <img
-                  src={
-                    c.image
-                      ? encodeURI(c.image)
-                      : "/card-back.jpg"
-                  }
-                  alt={c.name}
-                  onError={(e) => {
-                    // fallback si Shopify o la URL falla
-                    (e.currentTarget as HTMLImageElement).src =
-                      "/card-back.jpg";
-                  }}
-                  style={{
-                    ...cardImg,
-                    transform: c.reversed
-                      ? "rotate(180deg)"
-                      : "none",
-                  }}
-                />
+                {c.image && c.imgOk ? (
+                  <img
+                    src={encodeURI(c.image)}
+                    alt={c.name}
+                    onError={() => {
+                      // marcamos que esta imagen falló (en vez de mostrar el dorso)
+                      setCards((prev) =>
+                        prev
+                          ? prev.map((p, idx) => (idx === i ? { ...p, imgOk: false } : p))
+                          : prev
+                      );
+                    }}
+                    style={{
+                      ...cardImg,
+                      transform: c.reversed ? "rotate(180deg)" : "none",
+                    }}
+                  />
+                ) : (
+                  <div style={fallbackBox}>
+                    <div style={{ fontWeight: 900, marginBottom: 6 }}>{c.name}</div>
+                    <div style={{ fontSize: 12, color: "#666" }}>Imagen no disponible</div>
+                    {c.reversed ? (
+                      <div style={{ marginTop: 8, fontSize: 12, fontWeight: 800 }}>
+                        (invertida)
+                      </div>
+                    ) : null}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -125,12 +126,9 @@ export default function Angeles12Page() {
             {cards.map((c, i) => (
               <div key={i} style={textCard}>
                 <b>
-                  {i + 1}. {c.name}{" "}
-                  {c.reversed ? "(invertida)" : ""}
+                  {i + 1}. {c.name} {c.reversed ? "(invertida)" : ""}
                 </b>
-                <p style={{ marginTop: 6 }}>
-                  {c.meaning || "—"}
-                </p>
+                <p style={{ marginTop: 6 }}>{c.meaning || "—"}</p>
               </div>
             ))}
           </div>
@@ -140,8 +138,7 @@ export default function Angeles12Page() {
   );
 }
 
-/* ─────────── estilos ─────────── */
-
+/* estilos */
 const btnStyle: React.CSSProperties = {
   margin: "14px 0",
   padding: "10px 16px",
@@ -164,12 +161,24 @@ const cardWrap: React.CSSProperties = {
   overflow: "hidden",
   border: "1px solid #eee",
   background: "#fff",
+  minHeight: 220,
 };
 
 const cardImg: React.CSSProperties = {
   width: "100%",
   height: "auto",
   display: "block",
+};
+
+const fallbackBox: React.CSSProperties = {
+  height: "100%",
+  minHeight: 220,
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 12,
+  textAlign: "center",
 };
 
 const textCard: React.CSSProperties = {
