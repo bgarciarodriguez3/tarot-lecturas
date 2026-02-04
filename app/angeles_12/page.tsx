@@ -1,6 +1,17 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
+
+type SpreadResultItem = {
+  position: string;
+  positionIndex: number;
+  card: {
+    id: string;
+    name?: string;
+    meaning?: string;
+    image?: string;
+  };
+};
 
 type SpreadResponse = {
   ok: boolean;
@@ -9,315 +20,323 @@ type SpreadResponse = {
   deck?: { slug?: string; name?: string };
   seed?: string | null;
   timestamp?: string;
-  result?: Array<{
-    position: string;
-    positionIndex: number;
-    card: {
-      id: string;
-      name: string;
-      meaning: string;
-      image?: string;
-    };
-  }>;
+  result?: SpreadResultItem[];
   error?: string;
+  status?: number;
 };
 
-const PRODUCT_ID = "angeles_12";
-const PICK_LIMIT = 4;
-
-function safeText(s: any) {
-  return typeof s === "string" ? s : "";
-}
+const TOTAL_CARDS = 12;
+const PICK_COUNT = 4;
 
 export default function Angeles12Page() {
-  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<number[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string>("");
   const [data, setData] = useState<SpreadResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
-  // índices de la "baraja" boca abajo
-  const [pickedIndexes, setPickedIndexes] = useState<number[]>([]);
-  const [revealed, setRevealed] = useState(false);
-
-  // email para "enviar por correo" (por ahora: abre el cliente de correo del usuario)
   const [email, setEmail] = useState("");
+  const [emailError, setEmailError] = useState("");
 
-  // 12 cartas boca abajo (solo UX)
-  const deckBackCards = useMemo(() => Array.from({ length: 12 }, (_, i) => i), []);
+  const remaining = PICK_COUNT - selected.length;
 
-  useEffect(() => {
-    let alive = true;
+  function toggleCard(i: number) {
+    // si ya hay lectura cargada, no permitimos cambiar selección (evita confusión)
+    if (data?.ok) return;
 
-    async function load() {
-      try {
-        setLoading(true);
-        setError(null);
+    setErrorMsg("");
+    setSelected((prev) => {
+      if (prev.includes(i)) return prev.filter((x) => x !== i);
+      if (prev.length >= PICK_COUNT) return prev;
+      return [...prev, i];
+    });
+  }
 
-        // llamamos a tu proxy (evita problemas CORS)
-        const res = await fetch("/api/spread", { cache: "no-store" });
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`);
-        }
+  async function fetchSpread() {
+    setLoading(true);
+    setErrorMsg("");
 
-        const json = (await res.json()) as SpreadResponse;
-
-        if (!json?.ok || !Array.isArray(json?.result)) {
-          throw new Error("Respuesta inválida de la API");
-        }
-
-        if (alive) setData(json);
-      } catch (e: any) {
-        if (alive) setError(e?.message || "No se pudo cargar la tirada.");
-      } finally {
-        if (alive) setLoading(false);
+    try {
+      const res = await fetch("/api/spread", { cache: "no-store" });
+      if (!res.ok) {
+        setErrorMsg("No se pudo cargar la tirada.");
+        setData(null);
+        return;
       }
+      const json = (await res.json()) as SpreadResponse;
+      if (!json?.ok || !json.result || json.result.length === 0) {
+        setErrorMsg("No se pudo cargar la tirada.");
+        setData(json ?? null);
+        return;
+      }
+      setData(json);
+    } catch {
+      setErrorMsg("No se pudo cargar la tirada.");
+      setData(null);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // cuando el usuario ha elegido 4 cartas, cargamos la tirada
+  React.useEffect(() => {
+    if (selected.length === PICK_COUNT && !data?.ok && !loading) {
+      void fetchSpread();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected.length]);
+
+  const title = "Mensaje de los Ángeles";
+  const subtitle = "Respira hondo y conecta con tu pregunta...";
+
+  const prettyReadingText = useMemo(() => {
+    if (!data?.ok || !data.result) return "";
+
+    const lines: string[] = [];
+    lines.push(title);
+    lines.push("");
+    for (const item of data.result.sort((a, b) => a.positionIndex - b.positionIndex)) {
+      const cardTitle = item.card?.name?.trim() || item.card?.id || "Carta";
+      const meaning = (item.card?.meaning || "").trim();
+
+      lines.push(`${item.positionIndex}. ${item.position} — ${cardTitle}`);
+      if (meaning) {
+        // recortamos un poco para que el mail no sea infinito
+        const short = meaning.length > 2500 ? meaning.slice(0, 2500) + "…" : meaning;
+        lines.push(short);
+      }
+      lines.push("");
+    }
+    lines.push(`Lectura generada en: ${data.timestamp ?? "—"}`);
+    lines.push(`Enlace: ${typeof window !== "undefined" ? window.location.href : ""}`);
+
+    return lines.join("\n");
+  }, [data]);
+
+  function validateEmail(value: string) {
+    const v = value.trim();
+    if (!v) return "Escribe el email del cliente.";
+    // validación simple
+    const ok = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+    if (!ok) return "El email no parece válido.";
+    return "";
+  }
+
+  function onSendEmail() {
+    const err = validateEmail(email);
+    setEmailError(err);
+    if (err) return;
+
+    if (!data?.ok || !data.result) {
+      setEmailError("Primero genera la lectura (elige 4 cartas).");
+      return;
     }
 
-    load();
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  const remaining = PICK_LIMIT - pickedIndexes.length;
-
-  const canPickMore = pickedIndexes.length < PICK_LIMIT;
-
-  const onPick = (idx: number) => {
-    if (!canPickMore) return;
-    if (pickedIndexes.includes(idx)) return;
-
-    setPickedIndexes((prev) => [...prev, idx]);
-  };
-
-  const onReveal = () => {
-    if (pickedIndexes.length !== PICK_LIMIT) return;
-    setRevealed(true);
-  };
-
-  const onSendEmail = () => {
-    if (!data?.result?.length) return;
-
     const subject = encodeURIComponent("Tu lectura: Mensaje de los Ángeles");
-    const body = encodeURIComponent(
-      [
-        "Gracias por confiar en nosotros ✨",
-        "",
-        `Producto: ${PRODUCT_ID}`,
-        data.timestamp ? `Fecha: ${data.timestamp}` : "",
-        "",
-        "Tu lectura:",
-        "",
-        ...data.result.map((r) => {
-          const title = `${r.position} (#${r.positionIndex})`;
-          const cardName = r.card?.name || r.card?.id || "";
-          const meaning = safeText(r.card?.meaning);
-          return `${title}\n${cardName}\n\n${meaning}\n`;
-        }),
-      ]
-        .filter(Boolean)
-        .join("\n")
-    );
+    const body = encodeURIComponent(prettyReadingText);
 
-    // Enviar usando el cliente de correo del usuario (mailto)
-    // Más adelante lo cambiamos por envío real desde backend (sin depender del mailto)
-    const to = encodeURIComponent(email.trim());
-    window.location.href = `mailto:${to}?subject=${subject}&body=${body}`;
-  };
+    // Abre el cliente de correo (mailto)
+    window.location.href = `mailto:${encodeURIComponent(email.trim())}?subject=${subject}&body=${body}`;
+  }
 
   return (
-    <main style={{ maxWidth: 1200, margin: "0 auto", padding: 24 }}>
-      <h1 style={{ fontSize: 28, marginBottom: 8 }}>Mensaje de los Ángeles</h1>
-      <p style={{ marginTop: 0, color: "#555" }}>
-        Respira hondo y conecta con tu pregunta…
-      </p>
+    <main style={{ maxWidth: 1200, margin: "0 auto", padding: "32px 20px" }}>
+      <h1 style={{ fontSize: 42, margin: 0 }}>{title}</h1>
+      <p style={{ marginTop: 8, fontSize: 16, opacity: 0.8 }}>{subtitle}</p>
 
-      {loading && <p>Cargando tirada…</p>}
+      {!data?.ok && (
+        <>
+          <p style={{ marginTop: 18, marginBottom: 10, fontSize: 16 }}>
+            Tirada automática de {PICK_COUNT} cartas.
+            <br />
+            <strong>Elige {remaining} carta(s) más</strong>
+          </p>
 
-      {error && (
-        <p style={{ color: "crimson", fontWeight: 600 }}>
-          No se pudo cargar la tirada: {error}
-        </p>
+          {errorMsg && (
+            <div style={{ color: "#b00020", marginBottom: 14, fontWeight: 600 }}>
+              {errorMsg}
+            </div>
+          )}
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(6, minmax(140px, 1fr))",
+              gap: 18,
+              alignItems: "start",
+            }}
+          >
+            {Array.from({ length: TOTAL_CARDS }).map((_, i) => {
+              const isSelected = selected.includes(i);
+              return (
+                <button
+                  key={i}
+                  onClick={() => toggleCard(i)}
+                  disabled={loading}
+                  style={{
+                    border: isSelected ? "4px solid #e9d6a8" : "0px solid transparent",
+                    borderRadius: 14,
+                    padding: 0,
+                    background: "transparent",
+                    cursor: loading ? "not-allowed" : "pointer",
+                    boxShadow: "0 8px 20px rgba(0,0,0,0.10)",
+                    overflow: "hidden",
+                    outline: "none",
+                  }}
+                  aria-label={`Carta ${i + 1}`}
+                  title={isSelected ? "Seleccionada" : "Seleccionar"}
+                >
+                  <img
+                    src="/card-back.jpg"
+                    alt="Dorso de carta"
+                    style={{
+                      width: "100%",
+                      height: "auto",
+                      display: "block",
+                      opacity: isSelected ? 0.65 : 1,
+                      transform: "translateZ(0)",
+                    }}
+                  />
+                </button>
+              );
+            })}
+          </div>
+
+          {loading && (
+            <p style={{ marginTop: 16, opacity: 0.8 }}>Generando lectura…</p>
+          )}
+        </>
       )}
 
-      {/* BARJA BOCA ABAJO */}
-      <section style={{ marginTop: 18 }}>
-        {!revealed ? (
-          <>
-            <p style={{ marginBottom: 10 }}>
-              {remaining > 0
-                ? `Elige ${remaining} carta(s) más`
-                : "Listo. Pulsa “Ver lectura” para revelar."}
-            </p>
+      {data?.ok && data.result && (
+        <>
+          <h2 style={{ marginTop: 28, fontSize: 26 }}>Tu lectura</h2>
 
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
-                gap: 16,
-              }}
-            >
-              {deckBackCards.map((idx) => {
-                const isPicked = pickedIndexes.includes(idx);
+          {errorMsg && (
+            <div style={{ color: "#b00020", marginBottom: 14, fontWeight: 600 }}>
+              {errorMsg}
+            </div>
+          )}
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(4, minmax(220px, 1fr))",
+              gap: 18,
+              marginTop: 14,
+            }}
+          >
+            {data.result
+              .slice()
+              .sort((a, b) => a.positionIndex - b.positionIndex)
+              .map((item) => {
+                const cardTitle = item.card?.name?.trim() || item.card?.id || "Carta";
+                const meaning = (item.card?.meaning || "").trim();
+                const img = item.card?.image;
+
                 return (
-                  <button
-                    key={idx}
-                    onClick={() => onPick(idx)}
-                    disabled={!canPickMore && !isPicked}
+                  <div
+                    key={item.positionIndex}
                     style={{
-                      border: isPicked ? "3px solid #d7c08a" : "1px solid #e5e5e5",
-                      borderRadius: 14,
-                      overflow: "hidden",
-                      background: "#fff",
-                      padding: 0,
-                      cursor: isPicked ? "default" : "pointer",
-                      opacity: !canPickMore && !isPicked ? 0.6 : 1,
+                      borderRadius: 16,
+                      border: "1px solid rgba(0,0,0,0.08)",
+                      padding: 16,
+                      boxShadow: "0 10px 24px rgba(0,0,0,0.06)",
+                      background: "white",
                     }}
-                    aria-label={`Carta ${idx + 1}`}
-                    title={isPicked ? "Seleccionada" : "Seleccionar"}
                   >
-                    <img
-                      src="/card-back.jpg"
-                      alt="Dorso de la carta"
-                      style={{
-                        width: "100%",
-                        height: 260,
-                        objectFit: "cover",
-                        display: "block",
-                      }}
-                    />
-                  </button>
+                    <div style={{ fontSize: 13, opacity: 0.75, marginBottom: 8 }}>
+                      {item.position} (#{item.positionIndex})
+                    </div>
+
+                    <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 12 }}>
+                      {cardTitle}
+                    </div>
+
+                    {img ? (
+                      <img
+                        src={img}
+                        alt={cardTitle}
+                        style={{
+                          width: "100%",
+                          borderRadius: 14,
+                          border: "1px solid rgba(0,0,0,0.08)",
+                          marginBottom: 12,
+                        }}
+                      />
+                    ) : null}
+
+                    {meaning ? (
+                      <div style={{ fontSize: 14, lineHeight: 1.45, whiteSpace: "pre-wrap" }}>
+                        {meaning}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 14, opacity: 0.7 }}>
+                        (Sin texto de significado)
+                      </div>
+                    )}
+                  </div>
                 );
               })}
-            </div>
+          </div>
 
-            <div style={{ marginTop: 18, display: "flex", gap: 12, alignItems: "center" }}>
-              <button
-                onClick={onReveal}
-                disabled={pickedIndexes.length !== PICK_LIMIT}
+          {/* EMAIL */}
+          <div
+            style={{
+              marginTop: 22,
+              borderRadius: 16,
+              border: "1px solid rgba(0,0,0,0.08)",
+              padding: 16,
+              background: "white",
+              boxShadow: "0 10px 24px rgba(0,0,0,0.06)",
+            }}
+          >
+            <div style={{ fontWeight: 800, marginBottom: 10 }}>Enviar esta lectura por email</div>
+
+            <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+              <input
+                value={email}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  setEmailError("");
+                }}
+                placeholder="correo@cliente.com"
                 style={{
-                  padding: "12px 16px",
-                  borderRadius: 10,
-                  border: "1px solid #111",
-                  background: pickedIndexes.length === PICK_LIMIT ? "#111" : "#ddd",
-                  color: pickedIndexes.length === PICK_LIMIT ? "#fff" : "#555",
-                  cursor: pickedIndexes.length === PICK_LIMIT ? "pointer" : "not-allowed",
+                  flex: "1 1 320px",
+                  padding: "12px 14px",
+                  borderRadius: 12,
+                  border: "1px solid rgba(0,0,0,0.18)",
+                  fontSize: 14,
+                }}
+              />
+
+              <button
+                onClick={onSendEmail}
+                style={{
+                  padding: "12px 18px",
+                  borderRadius: 12,
+                  border: "1px solid rgba(0,0,0,0.25)",
+                  background: "#f3f3f3",
                   fontWeight: 700,
+                  cursor: "pointer",
                 }}
               >
-                Ver lectura
+                Enviar
               </button>
-
-              <span style={{ color: "#666" }}>
-                (seleccionadas: {pickedIndexes.length}/{PICK_LIMIT})
-              </span>
-            </div>
-          </>
-        ) : (
-          <>
-            <h2 style={{ marginTop: 10, fontSize: 22 }}>Tu lectura</h2>
-
-            {/* RESULTADO */}
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-                gap: 18,
-                marginTop: 12,
-              }}
-            >
-              {(data?.result || []).map((r) => (
-                <article
-                  key={`${r.positionIndex}-${r.card?.id}`}
-                  style={{
-                    border: "1px solid #e6e6e6",
-                    borderRadius: 14,
-                    padding: 14,
-                    background: "#fff",
-                  }}
-                >
-                  <div style={{ fontSize: 13, color: "#777", marginBottom: 6 }}>
-                    {r.position} (#{r.positionIndex})
-                  </div>
-
-                  <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 10 }}>
-                    {r.card?.name || r.card?.id}
-                  </div>
-
-                  {r.card?.image ? (
-                    <img
-                      src={r.card.image}
-                      alt={r.card?.name || r.card?.id}
-                      style={{
-                        width: "100%",
-                        height: 360,
-                        objectFit: "cover",
-                        borderRadius: 12,
-                        border: "1px solid #eee",
-                        marginBottom: 12,
-                      }}
-                    />
-                  ) : null}
-
-                  <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.5, color: "#222" }}>
-                    {safeText(r.card?.meaning)}
-                  </div>
-                </article>
-              ))}
             </div>
 
-            {/* ENVIAR POR EMAIL */}
-            <section
-              style={{
-                marginTop: 22,
-                padding: 14,
-                border: "1px solid #e6e6e6",
-                borderRadius: 14,
-                background: "#fafafa",
-              }}
-            >
-              <h3 style={{ margin: 0, marginBottom: 10 }}>Enviar esta lectura por email</h3>
-
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <input
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="correo@cliente.com"
-                  type="email"
-                  style={{
-                    padding: "12px 12px",
-                    borderRadius: 10,
-                    border: "1px solid #ccc",
-                    minWidth: 260,
-                    flex: "1 1 260px",
-                  }}
-                />
-
-                <button
-                  onClick={onSendEmail}
-                  disabled={!email.trim()}
-                  style={{
-                    padding: "12px 16px",
-                    borderRadius: 10,
-                    border: "1px solid #111",
-                    background: email.trim() ? "#111" : "#ddd",
-                    color: email.trim() ? "#fff" : "#555",
-                    cursor: email.trim() ? "pointer" : "not-allowed",
-                    fontWeight: 700,
-                  }}
-                >
-                  Enviar
-                </button>
+            {emailError ? (
+              <div style={{ marginTop: 10, color: "#b00020", fontWeight: 600 }}>
+                {emailError}
               </div>
+            ) : null}
 
-              <p style={{ marginTop: 10, marginBottom: 0, fontSize: 13, color: "#666" }}>
-                Nota: ahora mismo se abre el cliente de correo (mailto). Si quieres, el
-                siguiente paso es enviarlo automáticamente desde servidor (sin depender
-                del mailto).
-              </p>
-            </section>
-          </>
-        )}
-      </section>
+            <div style={{ marginTop: 10, fontSize: 12, opacity: 0.75 }}>
+              Nota: ahora mismo se abre el cliente de correo (mailto). Si quieres, el siguiente paso
+              es enviarlo automáticamente desde servidor (sin depender del mailto).
+            </div>
+          </div>
+        </>
+      )}
     </main>
   );
 }
