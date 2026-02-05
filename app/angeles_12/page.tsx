@@ -1,201 +1,155 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 
 type Card = {
   id?: string;
   name: string;
-  meaning?: string;
+  meaning?: string;      // corto (JSON/Airtable)
+  longMeaning?: string;  // largo semanal (IA)
   image?: string;
   reversed?: boolean;
 };
 
 type ApiResp =
-  | {
-      ok: true;
-      cards: Card[];
-      reading?: { text?: string; week?: string; cached?: boolean } | null;
-      meta?: any;
-      reversedIndex?: number;
-    }
+  | { ok: true; cards: Card[]; reversedIndex?: number }
   | { ok: false; error: string; details?: string };
-
-type UiCard = Card & { imgOk: boolean };
-
-function safeEncodeUrl(url: string) {
-  return (url || "").trim().replace(/\s/g, "%20");
-}
-
-function pickRevealIndexes(cards: UiCard[], revealCount: number) {
-  const n = cards.length;
-  const idxReversed = cards.findIndex((c) => c.reversed === true);
-
-  const set = new Set<number>();
-  // Siempre intentamos incluir la invertida entre las 4 reveladas
-  if (idxReversed >= 0) set.add(idxReversed);
-
-  // Añadimos aleatorias hasta llegar a revealCount
-  while (set.size < Math.min(revealCount, n)) {
-    const r = Math.floor(Math.random() * n);
-    set.add(r);
-  }
-
-  return Array.from(set);
-}
-
-function buildEmailBody(params: {
-  cards: UiCard[];
-  revealIdx: number[];
-  longText: string;
-}) {
-  const { cards, revealIdx, longText } = params;
-
-  const revealedCards = revealIdx
-    .map((i, k) => {
-      const c = cards[i];
-      const inv = c.reversed ? " (invertida)" : "";
-      return `${k + 1}. ${c.name}${inv}\n${c.meaning || ""}`.trim();
-    })
-    .join("\n\n");
-
-  return `
-TIRADA DE ÁNGELES (12 cartas)
-Se revelan 4 cartas:
-
-${revealedCards}
-
-----------------------------------------
-
-INTERPRETACIÓN LARGA:
-
-${longText}
-`.trim();
-}
 
 export default function Angeles12Page() {
   const backs = useMemo(() => Array.from({ length: 12 }), []);
-  const [cards, setCards] = useState<UiCard[] | null>(null);
-  const [revealIdx, setRevealIdx] = useState<number[]>([]);
-  const [longText, setLongText] = useState<string>("");
-  const [clientEmail, setClientEmail] = useState<string>("");
+  const [deck, setDeck] = useState<Card[] | null>(null);
+
+  // índices que el cliente ha decidido voltear
+  const [picked, setPicked] = useState<number[]>([]);
+
   const [loading, setLoading] = useState(false);
+  const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [email, setEmail] = useState("");
 
   async function generar() {
     setLoading(true);
     setError(null);
+    setPicked([]);
 
     try {
-      const res = await fetch("/api/angeles_12/spread", { cache: "no-store" });
+      // ✅ Ideal: proxy en tarot-lecturas (app/api/spread/route.ts)
+      // Debe terminar llamando a: https://tarot-api-vercel.vercel.app/api/products/angeles_12/spread
+      const res = await fetch("/api/spread?product_id=angeles_12", { cache: "no-store" });
       const data: ApiResp = await res.json();
 
       if (!res.ok || !data.ok) {
-        setCards(null);
-        setRevealIdx([]);
-        setLongText("");
-        setError("No se pudo generar la tirada.");
+        setDeck(null);
+        setError(data && "error" in data ? (data.details || data.error) : "No se pudo generar la tirada.");
         return;
       }
 
-      const normalized: UiCard[] = (data.cards || []).map((c: any) => {
-        const rawImg = c.image || c.img || c.image_url || c.imageUrl || "";
+      const normalized = (data.cards || []).map((c) => {
+        const rawImg = (c as any).image || (c as any).img || (c as any).image_url || (c as any).imageUrl || "";
         const cleanImg = typeof rawImg === "string" ? rawImg.trim() : "";
-
         return {
           ...c,
           image: cleanImg,
           reversed: c.reversed === true,
-          imgOk: true,
-        };
+        } as Card;
       });
 
-      // ✅ Verificar baraja entera
-      if (normalized.length !== 12) {
-        setCards(normalized);
-        setRevealIdx([]);
-        setLongText("");
-        setError(`La API devolvió ${normalized.length} cartas. Deben ser 12.`);
-        return;
-      }
-
-      // ✅ Solo 4 cartas reveladas (siempre incluye la invertida si existe)
-      const picked = pickRevealIndexes(normalized, 4);
-      setCards(normalized);
-      setRevealIdx(picked);
-
-      // ✅ Texto largo: si viene de IA semanal, lo usamos.
-      // Si no viene, fallback “largo básico” con las 4 cartas reveladas.
-      const aiText = (data as any)?.reading?.text?.trim();
-      if (aiText && aiText.length > 50) {
-        setLongText(aiText);
-      } else {
-        const fallback = picked
-          .map((i) => {
-            const c = normalized[i];
-            return `✨ ${c.name}${c.reversed ? " (invertida)" : ""}\n${
-              c.meaning || ""
-            }`;
-          })
-          .join("\n\n");
-        setLongText(fallback);
-      }
-    } catch {
-      setCards(null);
-      setRevealIdx([]);
-      setLongText("");
+      setDeck(normalized);
+    } catch (e: any) {
+      setDeck(null);
       setError("Error de red.");
     } finally {
       setLoading(false);
     }
   }
 
-  function enviarEmail() {
-    if (!cards || revealIdx.length === 0) return;
+  function togglePick(i: number) {
+    if (!deck) return;
 
-    const to = (clientEmail || "").trim();
-    if (!to) {
-      setError("Escribe el correo del cliente antes de enviar.");
+    // si ya está elegida, la quitamos
+    if (picked.includes(i)) {
+      setPicked((prev) => prev.filter((x) => x !== i));
       return;
     }
 
-    const subject = encodeURIComponent("Tu tirada de Ángeles (semanal)");
-    const body = encodeURIComponent(
-      buildEmailBody({ cards, revealIdx, longText })
-    );
+    // máximo 4
+    if (picked.length >= 4) return;
 
-    // mailto (abre el cliente de correo)
-    window.location.href = `mailto:${encodeURIComponent(to)}?subject=${subject}&body=${body}`;
+    setPicked((prev) => [...prev, i]);
   }
 
-  const isRevealed = (i: number) => revealIdx.includes(i);
+  const pickedCards = deck ? picked.map((idx) => deck[idx]) : [];
+
+  async function enviarPorCorreo() {
+    setError(null);
+
+    if (!deck || picked.length !== 4) {
+      setError("Elige 4 cartas para enviar.");
+      return;
+    }
+    if (!email.trim() || !email.includes("@")) {
+      setError("Escribe un correo válido.");
+      return;
+    }
+
+    setSending(true);
+    try {
+      // ✅ Este endpoint debe enviar email REAL desde tu servidor
+      // (tarot-lecturas -> proxy -> tarot-api)
+      const res = await fetch("/api/send-reading", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: email.trim(),
+          product_id: "angeles_12",
+          pickedIndices: picked,
+          cards: pickedCards,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        setError(data?.details || data?.error || "No se pudo enviar el correo.");
+        return;
+      }
+    } catch {
+      setError("Error enviando el correo.");
+    } finally {
+      setSending(false);
+    }
+  }
 
   return (
     <main style={{ maxWidth: 1100, margin: "0 auto", padding: 20 }}>
       <h1 style={{ fontSize: 34, fontWeight: 900 }}>Mensaje de los Ángeles</h1>
       <p style={{ color: "#555", marginTop: 6 }}>
-        Baraja completa (12) · Se revelan 4 cartas · Máx 8 tiradas/día
+        Baraja completa (12) · El cliente elige 4 cartas · Solo 1 carta invertida
       </p>
 
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12 }}>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
         <button onClick={generar} disabled={loading} style={btnStyle}>
           {loading ? "Generando..." : "Generar tirada"}
         </button>
 
         <input
-          value={clientEmail}
-          onChange={(e) => setClientEmail(e.target.value)}
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
           placeholder="Correo del cliente"
           style={inputStyle}
-          type="email"
         />
 
         <button
-          onClick={enviarEmail}
-          disabled={!cards || revealIdx.length === 0}
-          style={btnStyle}
+          onClick={enviarPorCorreo}
+          disabled={sending || !deck || picked.length !== 4}
+          style={btnPrimary}
         >
-          Enviar por correo
+          {sending ? "Enviando..." : "Enviar por correo"}
         </button>
+
+        <div style={{ color: "#555", fontWeight: 700 }}>
+          Seleccionadas: {picked.length}/4
+        </div>
       </div>
 
       {error && (
@@ -204,106 +158,102 @@ export default function Angeles12Page() {
         </div>
       )}
 
-      {/* 🂠 Baraja completa: antes de generar */}
-      {!cards && (
+      {/* 🂠 Boca abajo antes de generar */}
+      {!deck && (
         <div style={gridStyle}>
           {backs.map((_, i) => (
-            <div key={`back-${i}`} style={cardWrap}>
+            <div key={i} style={cardWrap}>
               <img src="/card-back.jpg" alt="Carta boca abajo" style={cardImg} />
             </div>
           ))}
         </div>
       )}
 
-      {/* 🃏 Baraja completa: después de generar (solo 4 se revelan) */}
-      {cards && (
+      {/* 🃏 Baraja completa: el usuario elige 4 para voltear */}
+      {deck && (
         <>
           <div style={gridStyle}>
-            {cards.map((c, i) => {
-              const showFront = isRevealed(i);
-              const src =
-                showFront && c.image && c.imgOk
-                  ? safeEncodeUrl(c.image)
-                  : "/card-back.jpg";
+            {deck.map((c, i) => {
+              const isPicked = picked.includes(i);
 
               return (
-                <div
-                  key={c.id ?? `${c.name}-${i}`} // ✅ key estable (evita bugs como el de Miguel)
+                <button
+                  key={i}
+                  onClick={() => togglePick(i)}
                   style={{
                     ...cardWrap,
-                    transform: showFront && c.reversed ? "rotate(180deg)" : "rotate(0deg)",
-                    transition: "transform 200ms ease",
-                    opacity: showFront ? 1 : 0.95,
+                    cursor: "pointer",
+                    outline: isPicked ? "3px solid #111" : "none",
                   }}
-                  title={showFront ? c.name : "Carta boca abajo"}
+                  title={isPicked ? "Quitar selección" : "Seleccionar carta"}
                 >
-                  <img
-                    src={src}
-                    alt={c.name}
-                    loading="lazy"
-                    style={cardImg}
-                    onError={(e) => {
-                      // Si falla la imagen frontal, la cambiamos al dorso, pero solo para esa carta
-                      const el = e.currentTarget;
-                      if (el.src.includes("/card-back.jpg")) return;
-
-                      el.src = "/card-back.jpg";
-                      setCards((prev) =>
-                        prev
-                          ? prev.map((p, idx) => (idx === i ? { ...p, imgOk: false } : p))
-                          : prev
-                      );
-                    }}
-                  />
-
-                  {/* Etiqueta si está revelada */}
-                  {showFront && (
-                    <div style={label}>
-                      <div style={{ fontWeight: 900 }}>
-                        {c.name} {c.reversed ? "· invertida" : ""}
-                      </div>
+                  {!isPicked ? (
+                    <img src="/card-back.jpg" alt="Carta boca abajo" style={cardImg} />
+                  ) : c.image ? (
+                    <img
+                      src={c.image}
+                      alt={c.name}
+                      onError={(ev) => {
+                        // si falla imagen, mostramos fallback visual pero NO rompemos todo
+                        (ev.currentTarget as HTMLImageElement).style.display = "none";
+                        const parent = ev.currentTarget.parentElement;
+                        if (parent) {
+                          const div = document.createElement("div");
+                          div.style.padding = "12px";
+                          div.style.textAlign = "center";
+                          div.style.fontWeight = "800";
+                          div.innerText = `Imagen no disponible\n${c.name}`;
+                          parent.appendChild(div);
+                        }
+                      }}
+                      style={{
+                        ...cardImg,
+                        transform: c.reversed ? "rotate(180deg)" : "none",
+                      }}
+                    />
+                  ) : (
+                    <div style={missingBox}>
+                      <div style={{ fontWeight: 900, marginBottom: 6 }}>{c.name}</div>
+                      <div style={{ fontSize: 12, color: "#666" }}>Imagen no disponible</div>
                     </div>
                   )}
-                </div>
+                </button>
               );
             })}
           </div>
 
+          {/* Descripción larga SOLO de las 4 elegidas */}
           <h2 style={{ marginTop: 24, fontSize: 22, fontWeight: 900 }}>
-            Descripción larga
+            Descripción larga (4 cartas elegidas)
           </h2>
 
-          <div style={textCard}>
-            <div
-              style={{
-                whiteSpace: "pre-wrap",
-                lineHeight: 1.6,
-                color: "#222",
-              }}
-            >
-              {longText || "—"}
+          {picked.length !== 4 ? (
+            <div style={{ marginTop: 10, color: "#555" }}>
+              Elige 4 cartas haciendo clic en la baraja.
             </div>
-          </div>
-
-          <h3 style={{ marginTop: 18, fontSize: 18, fontWeight: 900 }}>
-            Las 4 cartas reveladas
-          </h3>
-
-          <div style={{ display: "grid", gap: 12, marginTop: 10 }}>
-            {revealIdx.map((idx, k) => {
-              const c = cards[idx];
-              return (
-                <div key={`r-${c.id ?? idx}`} style={miniCard}>
+          ) : (
+            <div style={{ display: "grid", gap: 12, marginTop: 10 }}>
+              {pickedCards.map((c, idx) => (
+                <div key={idx} style={textCard}>
                   <div style={{ fontWeight: 900 }}>
-                    {k + 1}. {c.name} {c.reversed ? "(invertida)" : ""}
+                    {idx + 1}. {c.name} {c.reversed ? "(invertida)" : ""}
                   </div>
-                  <div style={{ marginTop: 6, whiteSpace: "pre-wrap" }}>
-                    {c.meaning || "—"}
+
+                  <div
+                    style={{
+                      marginTop: 8,
+                      color: "#222",
+                      whiteSpace: "pre-wrap",
+                      overflow: "visible",
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    {c.longMeaning || c.meaning || "—"}
                   </div>
                 </div>
-              );
-            })}
-          </div>
+              ))}
+            </div>
+          )}
         </>
       )}
     </main>
@@ -320,56 +270,58 @@ const btnStyle: React.CSSProperties = {
   cursor: "pointer",
 };
 
+const btnPrimary: React.CSSProperties = {
+  padding: "10px 16px",
+  borderRadius: 12,
+  border: "1px solid #111",
+  background: "#111",
+  color: "white",
+  fontWeight: 900,
+  cursor: "pointer",
+};
+
 const inputStyle: React.CSSProperties = {
   padding: "10px 12px",
   borderRadius: 12,
   border: "1px solid #ddd",
-  minWidth: 240,
+  minWidth: 260,
+  fontWeight: 700,
 };
 
 const gridStyle: React.CSSProperties = {
-  marginTop: 18,
+  marginTop: 20,
   display: "grid",
   gridTemplateColumns: "repeat(6, 1fr)",
   gap: 12,
 };
 
 const cardWrap: React.CSSProperties = {
-  position: "relative",
   borderRadius: 14,
   overflow: "hidden",
   border: "1px solid #eee",
   background: "#fff",
-  height: 260,
+  minHeight: 220,
+  padding: 0,
 };
 
 const cardImg: React.CSSProperties = {
   width: "100%",
-  height: "100%",
-  objectFit: "cover",
+  height: "auto",
   display: "block",
 };
 
-const label: React.CSSProperties = {
-  position: "absolute",
-  left: 8,
-  right: 8,
-  bottom: 8,
-  padding: "8px 10px",
-  borderRadius: 12,
-  background: "rgba(0,0,0,0.55)",
-  color: "white",
+const missingBox: React.CSSProperties = {
+  height: "100%",
+  minHeight: 220,
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 12,
+  textAlign: "center",
 };
 
 const textCard: React.CSSProperties = {
-  border: "1px solid #eee",
-  borderRadius: 12,
-  padding: 14,
-  background: "white",
-  marginTop: 10,
-};
-
-const miniCard: React.CSSProperties = {
   border: "1px solid #eee",
   borderRadius: 12,
   padding: 14,
